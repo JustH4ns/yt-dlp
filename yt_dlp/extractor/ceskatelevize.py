@@ -13,7 +13,8 @@ from ..utils import (
 
 
 class CeskaTelevizeIE(InfoExtractor):
-    _VALID_URL = r'https?://(?:www\.)?ceskatelevize\.cz/(?:ivysilani|porady|zive)/(?:[^/?#&]+/)*(?P<id>[^/#?]+)'
+    _VALID_URL = r'https?://(?:(?:decko|edu)\.ceskatelevize\.cz/video|(?:www\.)?ceskatelevize\.cz/(?:ivysilani|porady|zive))/(?:[^/?#&]+/)*(?P<id>[^/#?]+)'
+    _IDEC_EMBED_HOSTNAMES = ('decko.ceskatelevize.cz', 'edu.ceskatelevize.cz')
     _VOD_API = 'https://api.ceskatelevize.cz/video/v1/playlist-vod/v1'
     _LIVE_API = 'https://api.ceskatelevize.cz/video/v1/playlist-live/v1'
     _PLAYER_CLIENT = 'iVysilaniWeb'
@@ -81,6 +82,36 @@ class CeskaTelevizeIE(InfoExtractor):
         # iframe embed
         'url': 'https://www.ceskatelevize.cz/porady/10614999031-neviditelni/21251212048/',
         'only_matching': True,
+    }, {
+        # Déčko (kids' channel) video page
+        'url': 'https://decko.ceskatelevize.cz/video/e217543110100007',
+        'info_dict': {
+            'id': '217543110100007',
+            'ext': 'mp4',
+            'title': 'Pohádky Karla Jaromíra Erbena — Otesánek',
+            'description': r're:^Desatero příběhů nejznámějšího',
+            'thumbnail': r're:^https?://.*\.jpg',
+            'duration': 541.0,
+        },
+        'params': {
+            # m3u8 download
+            'skip_download': True,
+        },
+    }, {
+        # ČT edu (education channel) video page - same microsite pattern as decko
+        'url': 'https://edu.ceskatelevize.cz/video/19049-whatsapp-kanaly-a-jejich-nebezpeci',
+        'info_dict': {
+            'id': '425235100261006',
+            'ext': 'mp4',
+            'title': 'WhatsApp kanály a jejich nebezpečí',
+            'description': r're:^WhatsApp není jen',
+            'thumbnail': r're:^https?://.*',
+            'duration': 1575.64,
+        },
+        'params': {
+            # m3u8 download
+            'skip_download': True,
+        },
     }]
 
     def _api_request(self, api_url, video_id, note):
@@ -170,10 +201,17 @@ class CeskaTelevizeIE(InfoExtractor):
         site_name = self._og_search_property('site_name', webpage, fatal=False, default='Česká televize')
         playlist_title = self._og_search_title(webpage, default=None)
         if site_name and playlist_title:
-            playlist_title = re.split(rf'\s*[—|]\s*{site_name}', playlist_title, maxsplit=1)[0]
+            playlist_title = re.split(rf'\s*[—|-]\s*{site_name}', playlist_title, maxsplit=1)[0]
         playlist_description = self._og_search_description(webpage, default=None)
         if playlist_description:
             playlist_description = playlist_description.replace('\xa0', ' ')
+
+        if parsed_url.hostname in self._IDEC_EMBED_HOSTNAMES:
+            idec = re.sub(r'\D', '', self._search_regex(r'IDEC=([\d\s/]+)', webpage, 'IDEC'))
+            data = self._api_request(
+                f'{self._VOD_API}/stream-data/media/external/{idec}',
+                playlist_id, 'Downloading stream data')
+            return self._parse_vod_response(data, idec, playlist_id, playlist_title, playlist_description)
 
         if '/zive/' in parsed_url.path:
             next_data = self._search_nextjs_data(webpage, playlist_id)
